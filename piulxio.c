@@ -245,6 +245,44 @@ static void piulxio_process_inputs(struct piulxio *piu)
         piu->old_inputs[i] = current_inputs[i];
     }
 
+    /* Update LED states based on button presses - correct bit-field mapping */
+    spin_lock(&piu->io_lock);
+    
+    /* Clear all LED bits first */
+    memset(piu->new_outputs, 0, LXIO_MSG_SZ);
+    
+    /* Control pad LEDs - based on actual hardware bit layout */
+    // Byte 0 bit layout: [blank][P1_RD][P1_LD][P1_CN][P1_RU][P1_LU][SensorGroup:2]
+    if (test_bit(0, current_inputs)) piu->new_outputs[0] |= (1 << 2); // P1_LU -> byte 0, bit 2
+    if (test_bit(1, current_inputs)) piu->new_outputs[0] |= (1 << 3); // P1_RU -> byte 0, bit 3  
+    if (test_bit(2, current_inputs)) piu->new_outputs[0] |= (1 << 4); // P1_CN -> byte 0, bit 4
+    if (test_bit(3, current_inputs)) piu->new_outputs[0] |= (1 << 5); // P1_LD -> byte 0, bit 5
+    if (test_bit(4, current_inputs)) piu->new_outputs[0] |= (1 << 6); // P1_RD -> byte 0, bit 6
+    
+    // Byte 2 bit layout: [HaloR2][P2_RD][P2_LD][P2_CN][P2_RU][P2_LU][SensorGroup:2]
+    if (test_bit(5, current_inputs)) piu->new_outputs[2] |= (1 << 2); // P2_LU -> byte 2, bit 2
+    if (test_bit(6, current_inputs)) piu->new_outputs[2] |= (1 << 3); // P2_RU -> byte 2, bit 3
+    if (test_bit(7, current_inputs)) piu->new_outputs[2] |= (1 << 4); // P2_CN -> byte 2, bit 4
+    if (test_bit(8, current_inputs)) piu->new_outputs[2] |= (1 << 5); // P2_LD -> byte 2, bit 5
+    if (test_bit(9, current_inputs)) piu->new_outputs[2] |= (1 << 6); // P2_RD -> byte 2, bit 6
+    
+    /* Control menu LEDs - based on actual hardware bit layout */
+    // Byte 4: [blank:3][P1_RD_Menu][P1_LD_Menu][P1_CN_Menu][P1_RU_Menu][P1_LU_Menu]
+    if (test_bit(14, current_inputs)) piu->new_outputs[4] |= (1 << 0); // P1_LU_Menu -> byte 4, bit 0
+    if (test_bit(15, current_inputs)) piu->new_outputs[4] |= (1 << 1); // P1_RU_Menu -> byte 4, bit 1
+    if (test_bit(16, current_inputs)) piu->new_outputs[4] |= (1 << 2); // P1_CN_Menu -> byte 4, bit 2
+    if (test_bit(17, current_inputs)) piu->new_outputs[4] |= (1 << 3); // P1_LD_Menu -> byte 4, bit 3
+    if (test_bit(18, current_inputs)) piu->new_outputs[4] |= (1 << 4); // P1_RD_Menu -> byte 4, bit 4
+    
+    // Byte 5: [blank:3][P2_RD_Menu][P2_LD_Menu][P2_CN_Menu][P2_RU_Menu][P2_LU_Menu]
+    if (test_bit(19, current_inputs)) piu->new_outputs[5] |= (1 << 0); // P2_LU_Menu -> byte 5, bit 0
+    if (test_bit(20, current_inputs)) piu->new_outputs[5] |= (1 << 1); // P2_RU_Menu -> byte 5, bit 1
+    if (test_bit(21, current_inputs)) piu->new_outputs[5] |= (1 << 2); // P2_CN_Menu -> byte 5, bit 2
+    if (test_bit(22, current_inputs)) piu->new_outputs[5] |= (1 << 3); // P2_LD_Menu -> byte 5, bit 3
+    if (test_bit(23, current_inputs)) piu->new_outputs[5] |= (1 << 4); // P2_RD_Menu -> byte 5, bit 4
+    
+    spin_unlock(&piu->io_lock);
+
     /* For each input which has changed state, report whether it was pressed
      * or released based on the current value. */
     for_each_set_bit(b, changed, piu->type->inputs) {
@@ -298,9 +336,18 @@ static void piulxio_out_completed(struct urb *urb)
 
     /* Copy in the new outputs */
     spin_lock(&piu->io_lock);
+    
+    /* Only log when there's actual LED data to send */
+    int has_led_data = 0;
+    for (int i = 0; i < LXIO_MSG_SZ; i++) {
+        if (piu->new_outputs[i] != 0) {
+            has_led_data = 1;
+            break;
+        }
+    }
+    
     memcpy(piu->outputs, piu->new_outputs, LXIO_MSG_SZ);
-    spin_unlock(&piu->io_lock);
-
+    
     /* Submit input URB to continue the cycle */
     ret = usb_submit_urb(piu->in, GFP_ATOMIC);
     if (ret == -EPERM)
@@ -320,8 +367,6 @@ resubmit:
  */
 static int piulxio_open(struct input_dev *idev)
 {
-    struct piulxio *piu = input_get_drvdata(idev);
-    
     /* Polling is already started in probe, so nothing to do here */
     return 0;
 }
@@ -564,13 +609,15 @@ static int piulxio_probe(struct usb_interface *intf,
     memset(piu->outputs, 0, LXIO_MSG_SZ);
     memset(piu->new_outputs, 0, LXIO_MSG_SZ);
     
-    /* Start the input polling cycle immediately */
-    ret = usb_submit_urb(piu->in, GFP_KERNEL);
+    /* Send initial output to wake up device */
+    ret = usb_submit_urb(piu->out, GFP_KERNEL);
     if (ret) {
-        dev_err(&intf->dev, "piulxio probe: failed to start polling %d\n", ret);
+        dev_err(&intf->dev, "piulxio probe: failed to send initial output %d\n", ret);
         piulxio_leds_destroy(piu);
         input_unregister_device(piu->idev);
         goto err;
+    } else {
+        dev_info(&intf->dev, "piulxio probe: initial output URB submitted successfully\n");
     }
 
     /* Final USB setup */
