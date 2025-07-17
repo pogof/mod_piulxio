@@ -131,9 +131,9 @@ static const char *led_names[] = {
 
 /* PIULXIO device parameters */
 static struct piulxio_devtype piulxio_dev = {
-	.led_names = led_names,
-	.inputs = (LXIO_NUM_BTNS < 64) ? LXIO_NUM_BTNS : 64,
-	.outputs = 27,
+    .led_names = led_names,
+    .inputs = 24,  // 10 pads + 4 operator buttons + 10 menu buttons
+    .outputs = 27,
 };
 
 /*
@@ -153,73 +153,107 @@ static int keycode(unsigned int pin)
  */
 static void piulxio_process_inputs(struct piulxio *piu)
 {
-	unsigned long changed[LXIO_MSG_LONGS];
-	unsigned long current_inputs[LXIO_MSG_LONGS];
-	unsigned long b;
-	int i;
-	unsigned char *inBuffer = piu->inputs;
+    unsigned long changed[LXIO_MSG_LONGS];
+    unsigned long current_inputs[LXIO_MSG_LONGS];
+    unsigned long b;
+    int i;
+    unsigned char *inBuffer = piu->inputs;
 
-	/* Clear current inputs */
-	memset(current_inputs, 0, sizeof(current_inputs));
+    /* Clear current inputs */
+    memset(current_inputs, 0, sizeof(current_inputs));
 
-	/* Invert pull-ups */
-	for (i = 0; i < LXIO_MSG_SZ; i++) {
-		inBuffer[i] ^= 0xFF;
-	}
+    /* Invert pull-ups */
+    for (i = 0; i < LXIO_MSG_SZ; i++) {
+        inBuffer[i] ^= 0xFF;
+    }
 
-	/* Extract P1 sensors (4 sensor groups in bytes 0-3) */
-	for (i = 0; i < 4; i++) {
-		if (inBuffer[i] & (1 << 0)) __set_bit(0 + i, current_inputs);  // P1_LU_Sens0-3
-		if (inBuffer[i] & (1 << 1)) __set_bit(5 + i, current_inputs);  // P1_RU_Sens0-3
-		if (inBuffer[i] & (1 << 2)) __set_bit(10 + i, current_inputs); // P1_CN_Sens0-3
-		if (inBuffer[i] & (1 << 3)) __set_bit(15 + i, current_inputs); // P1_LD_Sens0-3
-		if (inBuffer[i] & (1 << 4)) __set_bit(20 + i, current_inputs); // P1_RD_Sens0-3
-	}
+    /* Extract P1 pad sensors (combine 4 sensors into 1 button per pad) */
+    // P1_LU (combine sensors 0-3)
+    if ((inBuffer[0] & (1 << 0)) || (inBuffer[1] & (1 << 0)) || 
+        (inBuffer[2] & (1 << 0)) || (inBuffer[3] & (1 << 0)))
+        __set_bit(0, current_inputs);
+    
+    // P1_RU (combine sensors 0-3)
+    if ((inBuffer[0] & (1 << 1)) || (inBuffer[1] & (1 << 1)) || 
+        (inBuffer[2] & (1 << 1)) || (inBuffer[3] & (1 << 1)))
+        __set_bit(1, current_inputs);
+    
+    // P1_CN (combine sensors 0-3)
+    if ((inBuffer[0] & (1 << 2)) || (inBuffer[1] & (1 << 2)) || 
+        (inBuffer[2] & (1 << 2)) || (inBuffer[3] & (1 << 2)))
+        __set_bit(2, current_inputs);
+    
+    // P1_LD (combine sensors 0-3)
+    if ((inBuffer[0] & (1 << 3)) || (inBuffer[1] & (1 << 3)) || 
+        (inBuffer[2] & (1 << 3)) || (inBuffer[3] & (1 << 3)))
+        __set_bit(3, current_inputs);
+    
+    // P1_RD (combine sensors 0-3)
+    if ((inBuffer[0] & (1 << 4)) || (inBuffer[1] & (1 << 4)) || 
+        (inBuffer[2] & (1 << 4)) || (inBuffer[3] & (1 << 4)))
+        __set_bit(4, current_inputs);
 
-	/* Extract P2 sensors (4 sensor groups in bytes 4-7) */
-	for (i = 0; i < 4; i++) {
-		if (inBuffer[4 + i] & (1 << 0)) __set_bit(25 + i, current_inputs); // P2_LU_Sens0-3
-		if (inBuffer[4 + i] & (1 << 1)) __set_bit(30 + i, current_inputs); // P2_RU_Sens0-3
-		if (inBuffer[4 + i] & (1 << 2)) __set_bit(35 + i, current_inputs); // P2_CN_Sens0-3
-		if (inBuffer[4 + i] & (1 << 3)) __set_bit(40 + i, current_inputs); // P2_LD_Sens0-3
-		if (inBuffer[4 + i] & (1 << 4)) __set_bit(45 + i, current_inputs); // P2_RD_Sens0-3
-	}
+    /* Extract P2 pad sensors (combine 4 sensors into 1 button per pad) */
+    // P2_LU (combine sensors 0-3)
+    if ((inBuffer[4] & (1 << 0)) || (inBuffer[5] & (1 << 0)) || 
+        (inBuffer[6] & (1 << 0)) || (inBuffer[7] & (1 << 0)))
+        __set_bit(5, current_inputs);
+    
+    // P2_RU (combine sensors 0-3)
+    if ((inBuffer[4] & (1 << 1)) || (inBuffer[5] & (1 << 1)) || 
+        (inBuffer[6] & (1 << 1)) || (inBuffer[7] & (1 << 1)))
+        __set_bit(6, current_inputs);
+    
+    // P2_CN (combine sensors 0-3)
+    if ((inBuffer[4] & (1 << 2)) || (inBuffer[5] & (1 << 2)) || 
+        (inBuffer[6] & (1 << 2)) || (inBuffer[7] & (1 << 2)))
+        __set_bit(7, current_inputs);
+    
+    // P2_LD (combine sensors 0-3)
+    if ((inBuffer[4] & (1 << 3)) || (inBuffer[5] & (1 << 3)) || 
+        (inBuffer[6] & (1 << 3)) || (inBuffer[7] & (1 << 3)))
+        __set_bit(8, current_inputs);
+    
+    // P2_RD (combine sensors 0-3)
+    if ((inBuffer[4] & (1 << 4)) || (inBuffer[5] & (1 << 4)) || 
+        (inBuffer[6] & (1 << 4)) || (inBuffer[7] & (1 << 4)))
+        __set_bit(9, current_inputs);
 
-	/* Extract operator buttons (byte 8) */
-	if (inBuffer[8] & (1 << 1)) __set_bit(50, current_inputs); // Test
-	if (inBuffer[8] & (1 << 6)) __set_bit(51, current_inputs); // Service
-	if (inBuffer[8] & (1 << 7)) __set_bit(52, current_inputs); // Clear
-	if (inBuffer[8] & (1 << 2)) __set_bit(53, current_inputs); // Coin
+    /* Extract operator buttons (byte 8) */
+    if (inBuffer[8] & (1 << 1)) __set_bit(10, current_inputs); // Test
+    if (inBuffer[8] & (1 << 6)) __set_bit(11, current_inputs); // Service
+    if (inBuffer[8] & (1 << 7)) __set_bit(12, current_inputs); // Clear
+    if (inBuffer[8] & (1 << 2)) __set_bit(13, current_inputs); // Coin
 
-	/* Extract P1 menu buttons (byte 10) */
-	if (inBuffer[10] & (1 << 0)) __set_bit(54, current_inputs); // P1_LU_Menu
-	if (inBuffer[10] & (1 << 1)) __set_bit(55, current_inputs); // P1_RU_Menu
-	if (inBuffer[10] & (1 << 2)) __set_bit(56, current_inputs); // P1_CN_Menu
-	if (inBuffer[10] & (1 << 3)) __set_bit(57, current_inputs); // P1_LD_Menu
-	if (inBuffer[10] & (1 << 4)) __set_bit(58, current_inputs); // P1_RD_Menu
+    /* Extract P1 menu buttons (byte 10) */
+    if (inBuffer[10] & (1 << 0)) __set_bit(14, current_inputs); // P1_LU_Menu
+    if (inBuffer[10] & (1 << 1)) __set_bit(15, current_inputs); // P1_RU_Menu
+    if (inBuffer[10] & (1 << 2)) __set_bit(16, current_inputs); // P1_CN_Menu
+    if (inBuffer[10] & (1 << 3)) __set_bit(17, current_inputs); // P1_LD_Menu
+    if (inBuffer[10] & (1 << 4)) __set_bit(18, current_inputs); // P1_RD_Menu
 
-	/* Extract P2 menu buttons (byte 11) */
-	if (inBuffer[11] & (1 << 0)) __set_bit(59, current_inputs); // P2_LU_Menu
-	if (inBuffer[11] & (1 << 1)) __set_bit(60, current_inputs); // P2_RU_Menu
-	if (inBuffer[11] & (1 << 2)) __set_bit(61, current_inputs); // P2_CN_Menu
-	if (inBuffer[11] & (1 << 3)) __set_bit(62, current_inputs); // P2_LD_Menu
-	if (inBuffer[11] & (1 << 4)) __set_bit(63, current_inputs); // P2_RD_Menu
+    /* Extract P2 menu buttons (byte 11) */
+    if (inBuffer[11] & (1 << 0)) __set_bit(19, current_inputs); // P2_LU_Menu
+    if (inBuffer[11] & (1 << 1)) __set_bit(20, current_inputs); // P2_RU_Menu
+    if (inBuffer[11] & (1 << 2)) __set_bit(21, current_inputs); // P2_CN_Menu
+    if (inBuffer[11] & (1 << 3)) __set_bit(22, current_inputs); // P2_LD_Menu
+    if (inBuffer[11] & (1 << 4)) __set_bit(23, current_inputs); // P2_RD_Menu
 
-	/* Note what has changed */
-	for (i = 0; i < LXIO_MSG_LONGS; i++) {
-		changed[i] = current_inputs[i] ^ piu->old_inputs[i];
-		piu->old_inputs[i] = current_inputs[i];
-	}
+    /* Note what has changed */
+    for (i = 0; i < LXIO_MSG_LONGS; i++) {
+        changed[i] = current_inputs[i] ^ piu->old_inputs[i];
+        piu->old_inputs[i] = current_inputs[i];
+    }
 
-	/* For each input which has changed state, report whether it was pressed
-	 * or released based on the current value. */
-	for_each_set_bit(b, changed, piu->type->inputs) {
-		input_event(piu->idev, EV_MSC, MSC_SCAN, b + 1);
-		input_report_key(piu->idev, keycode(b), test_bit(b, current_inputs));
-	}
+    /* For each input which has changed state, report whether it was pressed
+     * or released based on the current value. */
+    for_each_set_bit(b, changed, piu->type->inputs) {
+        input_event(piu->idev, EV_MSC, MSC_SCAN, b + 1);
+        input_report_key(piu->idev, keycode(b), test_bit(b, current_inputs));
+    }
 
-	/* Done reporting input events */
-	input_sync(piu->idev);
+    /* Done reporting input events */
+    input_sync(piu->idev);
 }
 
 /*
