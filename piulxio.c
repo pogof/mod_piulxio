@@ -321,43 +321,15 @@ resubmit:
 static int piulxio_open(struct input_dev *idev)
 {
     struct piulxio *piu = input_get_drvdata(idev);
-    int ret;
-
-    /* Initialize outputs to all off */
-    memset(piu->outputs, 0, LXIO_MSG_SZ);
-    memset(piu->new_outputs, 0, LXIO_MSG_SZ);
-
-    /* Start the input polling cycle */
-    ret = usb_submit_urb(piu->in, GFP_KERNEL);
-    if (ret) {
-        dev_err(&piu->udev->dev, "piulxio submit(in): error %d\n", ret);
-        return -EIO;
-    }
-
+    
+    /* Polling is already started in probe, so nothing to do here */
     return 0;
 }
 
 static void piulxio_close(struct input_dev *idev)
 {
-	struct piulxio *piu = input_get_drvdata(idev);
-	long remaining;
-
-	/* Stop polling, but wait for the last requests to complete */
-	usb_block_urb(piu->in);
-	usb_block_urb(piu->out);
-	remaining = wait_event_timeout(piu->shutdown_wait,
-			atomic_read(&piu->in->use_count) == 0 &&
-			atomic_read(&piu->out->use_count) == 0,
-			msecs_to_jiffies(5));
-	usb_unblock_urb(piu->in);
-	usb_unblock_urb(piu->out);
-
-	if (!remaining) {
-		/* Timed out */
-		dev_warn(&piu->udev->dev, "piulxio close: urb timeout\n");
-		usb_kill_urb(piu->in);
-		usb_kill_urb(piu->out);
-	}
+    /* Keep polling running even when input device is closed */
+    /* This allows buttons to work immediately when needed */
 }
 
 /*
@@ -585,6 +557,19 @@ static int piulxio_probe(struct usb_interface *intf,
     if (ret) {
         dev_err(&intf->dev, "piulxio probe: failed to register input dev\n");
         piulxio_leds_destroy(piu);
+        goto err;
+    }
+
+    /* Initialize outputs to all off and start polling immediately */
+    memset(piu->outputs, 0, LXIO_MSG_SZ);
+    memset(piu->new_outputs, 0, LXIO_MSG_SZ);
+    
+    /* Start the input polling cycle immediately */
+    ret = usb_submit_urb(piu->in, GFP_KERNEL);
+    if (ret) {
+        dev_err(&intf->dev, "piulxio probe: failed to start polling %d\n", ret);
+        piulxio_leds_destroy(piu);
+        input_unregister_device(piu->idev);
         goto err;
     }
 
