@@ -336,16 +336,6 @@ static void piulxio_out_completed(struct urb *urb)
 
     /* Copy in the new outputs */
     spin_lock(&piu->io_lock);
-    
-    /* Only log when there's actual LED data to send */
-    int has_led_data = 0;
-    for (int i = 0; i < LXIO_MSG_SZ; i++) {
-        if (piu->new_outputs[i] != 0) {
-            has_led_data = 1;
-            break;
-        }
-    }
-    
     memcpy(piu->outputs, piu->new_outputs, LXIO_MSG_SZ);
     spin_unlock(&piu->io_lock);
 
