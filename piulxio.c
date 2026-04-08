@@ -9,6 +9,9 @@
  *
  * This code is based on the PIUIO driver by Devin J. Pohly and adapted
  * for the newer PIULXIO board with menu buttons.
+ * 
+ * Brought to you by Kuro
+ * 
  */
 
 #include <linux/kernel.h>
@@ -30,6 +33,7 @@
  */
 #define USB_VENDOR_ID_LXIO 0x0D2F
 #define USB_PRODUCT_ID_LXIO 0x1020
+#define USB_PRODUCT_ID_LXIO_V2 0x1040
 
 /* USB endpoints and message size */
 #define LXIO_ENDPOINT_INPUT 0x81
@@ -303,7 +307,7 @@ static void piulxio_in_completed(struct urb *urb)
     int ret = urb->status;
 
     if (ret) {
-        dev_warn(&piu->udev->dev, "piulxio callback(in): error %d\n", ret);
+        dev_warn(&piu->udev->dev, "PIULXIO CALLBACK(in): error %d\n", ret);
         goto resubmit;
     }
 
@@ -313,9 +317,9 @@ static void piulxio_in_completed(struct urb *urb)
     /* Submit output URB to send LED data */
     ret = usb_submit_urb(piu->out, GFP_ATOMIC);
     if (ret == -EPERM)
-        dev_info(&piu->udev->dev, "piulxio resubmit(out): shutdown\n");
+        dev_info(&piu->udev->dev, "PIULXIO RESUBMIT(out): shutdown\n");
     else if (ret)
-        dev_err(&piu->udev->dev, "piulxio resubmit(out): error %d\n", ret);
+        dev_err(&piu->udev->dev, "PIULXIO RESUBMIT(out): error %d\n", ret);
     else
         return; /* Success, don't wake up shutdown_wait */
 
@@ -330,30 +334,21 @@ static void piulxio_out_completed(struct urb *urb)
     int ret = urb->status;
 
     if (ret) {
-        dev_warn(&piu->udev->dev, "piulxio callback(out): error %d\n", ret);
+        dev_warn(&piu->udev->dev, "PIULXIO CALLBACK(out): error %d\n", ret);
         goto resubmit;
     }
 
     /* Copy in the new outputs */
     spin_lock(&piu->io_lock);
-    
-    /* Only log when there's actual LED data to send */
-    int has_led_data = 0;
-    for (int i = 0; i < LXIO_MSG_SZ; i++) {
-        if (piu->new_outputs[i] != 0) {
-            has_led_data = 1;
-            break;
-        }
-    }
-    
     memcpy(piu->outputs, piu->new_outputs, LXIO_MSG_SZ);
-    
+    spin_unlock(&piu->io_lock);
+
     /* Submit input URB to continue the cycle */
     ret = usb_submit_urb(piu->in, GFP_ATOMIC);
     if (ret == -EPERM)
-        dev_info(&piu->udev->dev, "piulxio resubmit(in): shutdown\n");
+        dev_info(&piu->udev->dev, "PIULXIO RESUBMIT(in): shutdown\n");
     else if (ret)
-        dev_err(&piu->udev->dev, "piulxio resubmit(in): error %d\n", ret);
+        dev_err(&piu->udev->dev, "PIULXIO RESUBMIT(in): error %d\n", ret);
     else
         return; /* Success, don't wake up shutdown_wait */
 
@@ -388,7 +383,7 @@ static void piulxio_led_set(struct led_classdev *dev, enum led_brightness b)
 
     n = led - piu->led;
     if (n >= piu->type->outputs) {
-        dev_err(&piu->udev->dev, "piulxio led: bad number %d\n", n);
+        dev_err(&piu->udev->dev, "PIULXIO LED: bad number %d\n", n);
         return;
     }
 
@@ -407,9 +402,9 @@ static void piulxio_led_set(struct led_classdev *dev, enum led_brightness b)
             usb_sndintpipe(piu->udev, LXIO_ENDPOINT_OUTPUT),
             piu->outputs, LXIO_MSG_SZ, &actual_length, 1000);
         if (ret)
-            dev_err(&piu->udev->dev, "piulxio led: send failed %d\n", ret);
+            dev_err(&piu->udev->dev, "PIULXIO LED: send failed %d\n", ret);
         else
-            dev_info(&piu->udev->dev, "piulxio led: sent %d bytes\n", actual_length);
+            dev_info(&piu->udev->dev, "PIULXIO LED: sent %d bytes\n", actual_length);
     }
 }
 
@@ -422,7 +417,7 @@ static void piulxio_input_init(struct piulxio *piu, struct device *parent)
 	int i;
 
 	/* Fill in basic fields */
-	idev->name = "PIULXIO input";
+	idev->name = "PIULXIO INPUT";
 	idev->phys = piu->phys;
 	usb_to_input_id(piu->udev, &idev->id);
 	idev->dev.parent = parent;
@@ -507,14 +502,14 @@ static int piulxio_init(struct piulxio *piu, struct input_dev *idev,
 	piu->in = usb_alloc_urb(0, GFP_KERNEL);
 	piu->out = usb_alloc_urb(0, GFP_KERNEL);
 	if (!piu->in || !piu->out) {
-		dev_err(&udev->dev, "piulxio init: failed to allocate URBs\n");
+		dev_err(&udev->dev, "PIULXIO INIT: failed to allocate URBs\n");
 		return -ENOMEM;
 	}
 
 	/* Allocate LED array */
 	piu->led = kzalloc(sizeof(*piu->led) * piu->type->outputs, GFP_KERNEL);
 	if (!piu->led) {
-		dev_err(&udev->dev, "piulxio init: failed to allocate led devices\n");
+		dev_err(&udev->dev, "PIULXIO INIT: failed to allocate led devices\n");
 		return -ENOMEM;
 	}
 
@@ -560,14 +555,14 @@ static int piulxio_probe(struct usb_interface *intf,
     struct input_dev *idev;
     int ret = -ENOMEM;
 
-    dev_info(&intf->dev, "PIULXIO: probe called for device %04x:%04x\n",
+    dev_info(&intf->dev, "PIULXIO PROBE: called for device %04x:%04x\n",
          le16_to_cpu(udev->descriptor.idVendor),
          le16_to_cpu(udev->descriptor.idProduct));
 
     /* Allocate PIULXIO state */
     piu = kzalloc(sizeof(struct piulxio), GFP_KERNEL);
     if (!piu) {
-        dev_err(&intf->dev, "piulxio probe: failed to allocate state\n");
+        dev_err(&intf->dev, "PIULXIO PROBE: failed to allocate state\n");
         return ret;
     }
 
@@ -576,7 +571,7 @@ static int piulxio_probe(struct usb_interface *intf,
     /* Allocate input device for generating button presses */
     idev = input_allocate_device();
     if (!idev) {
-        dev_err(&intf->dev, "piulxio probe: failed to allocate input dev\n");
+        dev_err(&intf->dev, "PIULXIO PROBE: failed to allocate input dev\n");
         kfree(piu);
         return ret;
     }
@@ -584,7 +579,7 @@ static int piulxio_probe(struct usb_interface *intf,
     /* Initialize PIULXIO state and input device */
     ret = piulxio_init(piu, idev, udev);
     if (ret) {
-        dev_err(&intf->dev, "piulxio probe: init failed with %d\n", ret);
+        dev_err(&intf->dev, "PIULXIO PROBE: init failed with %d\n", ret);
         goto err;
     }
 
@@ -593,14 +588,14 @@ static int piulxio_probe(struct usb_interface *intf,
     /* Initialize and register led devices */
     ret = piulxio_leds_init(piu);
     if (ret) {
-        dev_err(&intf->dev, "piulxio probe: leds init failed with %d\n", ret);
+        dev_err(&intf->dev, "PIULXIO PROBE: leds init failed with %d\n", ret);
         goto err;
     }
 
     /* Register input device */
     ret = input_register_device(piu->idev);
     if (ret) {
-        dev_err(&intf->dev, "piulxio probe: failed to register input dev\n");
+        dev_err(&intf->dev, "PIULXIO PROBE: failed to register input dev\n");
         piulxio_leds_destroy(piu);
         goto err;
     }
@@ -612,18 +607,18 @@ static int piulxio_probe(struct usb_interface *intf,
     /* Send initial output to wake up device */
     ret = usb_submit_urb(piu->out, GFP_KERNEL);
     if (ret) {
-        dev_err(&intf->dev, "piulxio probe: failed to send initial output %d\n", ret);
+        dev_err(&intf->dev, "PIULXIO PROBE: failed to send initial output %d\n", ret);
         piulxio_leds_destroy(piu);
         input_unregister_device(piu->idev);
         goto err;
     } else {
-        dev_info(&intf->dev, "piulxio probe: initial output URB submitted successfully\n");
+        dev_info(&intf->dev, "PIULXIO PROBE: initial output URB submitted successfully\n");
     }
 
     /* Final USB setup */
     usb_set_intfdata(intf, piu);
     
-    dev_info(&intf->dev, "PIULXIO: probe completed successfully\n");
+    dev_info(&intf->dev, "PIULXIO PROBE: completed successfully\n");
     return 0;
 
 err:
@@ -639,7 +634,7 @@ static void piulxio_disconnect(struct usb_interface *intf)
 
 	usb_set_intfdata(intf, NULL);
 	if (!piu) {
-		dev_err(&intf->dev, "piulxio disconnect: uninitialized device?\n");
+		dev_err(&intf->dev, "PIULXIO DISCONNECT: uninitialized device?\n");
 		return;
 	}
 
@@ -657,6 +652,7 @@ static void piulxio_disconnect(struct usb_interface *intf)
 static struct usb_device_id piulxio_id_table[] = {
 	/* PIULXIO board */
 	{ USB_DEVICE(USB_VENDOR_ID_LXIO, USB_PRODUCT_ID_LXIO) },
+    { USB_DEVICE(USB_VENDOR_ID_LXIO, USB_PRODUCT_ID_LXIO_V2) },
 	{},
 };
 
