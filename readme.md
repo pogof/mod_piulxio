@@ -8,11 +8,11 @@ This Driver makes it so the LXIO is usable in any game or anything else that nee
 
 ## How to use
 
-1. Build the module on the system it is intended for using the provided `Makefile`
+1. Build the module on the system it is intended for using the provided `Makefile` using the `make` command.
 
 2. The IO likes to and most likely will be bound by usbhid. You need to either find a way to unbound it every time or setup a `udev` rule (check how it works on your distribution, this is Ubuntu based instructions):
 
-Make a file in `/etc/udev/rules.d/99-piulxio.rules` that contains: 
+Make a file `sudo nano /etc/udev/rules.d/99-piulxio.rules` that contains: 
 ```
 ACTION=="add", SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_interface", ATTRS{idVendor}=="0d2f", ATTRS{idProduct}=="1020", ATTR{bInterfaceNumber}=="00", RUN+="/bin/sh -c 'echo -n %k > /sys/bus/usb/drivers/usbhid/unbind; echo -n %k > /sys/bus/usb/drivers/piulxio/bind'"
 
